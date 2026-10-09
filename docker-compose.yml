@@ -1,0 +1,86 @@
+services:
+  download-weights:
+    image: alpine
+    container_name: download-weights 
+    volumes:
+      - ./models:/models:rw
+    command: 
+      - /bin/sh 
+      - -c 
+      - |
+        [ -e "/models/Qwen3.8-27B-S-mirai.gguf" ] || (mkdir -p /models && wget https://huggingface.co/alesha-pro/Qwen3.8-27B-S-mirai-GGUF/resolve/main/Qwen3.8-27B-S-mirai.gguf -P /models)
+        [ -e "/models/mmproj-Qwen3.8-27B-base-f16.gguf" ] || (mkdir -p /models && wget https://huggingface.co/alesha-pro/Qwen3.8-27B-S-mirai-GGUF/resolve/main/mmproj-Qwen3.8-27B-base-f16.gguf -P /models)
+        [ -e "/models/Qwen3.8-27B-S-mirai-refusal-direction.gguf" ] || (mkdir -p /models && wget https://huggingface.co/alesha-pro/Qwen3.8-27B-S-mirai-GGUF/resolve/main/Qwen3.8-27B-S-mirai-refusal-direction.gguf -P /models)
+
+  llm-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.LLAMA
+    container_name: llm-server
+    ports:
+      - "8192:8080"
+    volumes:
+      - ./models:/models
+    cpuset: "0-15"
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']
+              capabilities: [gpu]
+    depends_on:
+      download-weights:
+        condition: service_completed_successfully
+
+  opencode-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.OpenCode
+    container_name: opencode-server
+    environment:
+      - IP_CHANGE_INTERVAL=300
+      - HTTPS_PROXY=127.0.0.1:9080
+      - HTTP_PROXY=127.0.0.1:9080
+      - NO_PROXY=localhost,127.0.0.1,llm-server
+    ports:
+      - "80:4096"
+    volumes:
+      - ./opencode.json:/root/.config/opencode/opencode.json:ro
+      - opencode_workspace:/root/workspace 
+      - ./AGENTS.md:/root/workspace/AGENTS.md:ro
+    restart: unless-stopped
+    depends_on:
+      llm-server:
+        condition: service_healthy
+
+  # Сервер Samba, который будет раздавать эту папку в сеть
+  opencode-samba:
+    build:
+      context: .
+      dockerfile: Dockerfile.Samba
+    container_name: opencode-samba
+    environment:
+      - TZ=Europe/Moscow
+      # -p включает глобальный гостевой доступ (guest account)
+      - NMBD=yes
+      - OPTIONS=-p -r
+      # Формат шары: "имя;путь;публичная;только_чтение;гость"
+      # Ставим yes на "публичная" и "гость"
+      - SHARE=public;/share;yes;no;yes
+      - PERMISSIONS=1
+    volumes:
+      - opencode_workspace:/share:z # Подключаем тот же том, что и у приложения
+    ports:
+      - "139:139"
+      - "445:445"
+    restart: unless-stopped
+    depends_on:
+      opencode-server:
+        condition: service_healthy
+
+volumes:
+  opencode_workspace:       
+    name: opencode-workspace
+        

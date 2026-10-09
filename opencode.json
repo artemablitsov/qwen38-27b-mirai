@@ -1,0 +1,42 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "local/Qwen3.8-27b",
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "localhost",
+      "options": {
+        "baseURL": "http://llm-server:8080/v1",
+        "headerTimeout": 3600000, 
+	"timeout": 10800000, 
+      	"chunkTimeout": 3600000, 
+      	"setCacheKey": true
+      },
+      "models": {
+        "Qwen3.8-27b": {
+          "name": "Qwen3.8-27b",
+          "attachment": true,
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "modalities": {
+            "input": ["text", "image"]
+          },
+          "compat": {
+            "supportsDeveloperRole": true,
+            "supportsReasoningEffort": true,
+            "thinkingFormat": "reasoning_effort"
+          },
+          "options": {
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "top_k": 20,
+            "min_p": 0.05,
+            "reasoning_effort": "low"
+          }
+        }
+      }
+    }
+  }
+}
