@@ -1,12 +1,12 @@
 services:
   download-weights:
     image: alpine
-    container_name: download-weights 
+    container_name: download-weights
     volumes:
       - ./models:/models:rw
-    command: 
-      - /bin/sh 
-      - -c 
+    command:
+      - /bin/sh
+      - -c
       - |
         [ -e "/models/Qwen3.8-27B-S-mirai.gguf" ] || (mkdir -p /models && wget https://huggingface.co/alesha-pro/Qwen3.8-27B-S-mirai-GGUF/resolve/main/Qwen3.8-27B-S-mirai.gguf -P /models)
         [ -e "/models/mmproj-Qwen3.8-27B-base-f16.gguf" ] || (mkdir -p /models && wget https://huggingface.co/alesha-pro/Qwen3.8-27B-S-mirai-GGUF/resolve/main/mmproj-Qwen3.8-27B-base-f16.gguf -P /models)
@@ -21,14 +21,30 @@ services:
       - "8192:8080"
     volumes:
       - ./models:/models
-    cpuset: "0-15"
+    # i7-14700: 8 P-ядер (физические, по одному потоку) + 4 E-ядра под фон.
+    # Избегаем перемешивания HT-потоков одного P-ядра, чтобы не было грызни за L2.
+    cpuset: "0,2,4,6,8,10,12,14,16,17,18,19"
+    environment:
+      # Порядок карт: 0 = A2000 Ada 16GB (быстрее/новее, делаем основной), 1 = A2000 12GB.
+      # ПРОВЕРЬТЕ фактический порядок через `nvidia-smi -L` и при необходимости поменяйте.
+      - CUDA_VISIBLE_DEVICES=0,1
+      # KV-кэш в VRAM. Старт под 28 ГБ суммарно; подберите по nvidia-smi (см. README-note).
+      - MIRAI_KV_VRAM_CELLS=100000
+      # Потоки CPU под FFN-стриминг и энкодер mmproj (не считаем все 28 потоков 14700).
+      - MIRAI_THREADS=12
+      # Для сложного кодинга medium вместо low (движок уже разрешает low,medium).
+      - MIRAI_EFFORT=medium
+      # Больше RAM-кэша горячих FFN-планов — у вас 128 ГБ, есть куда.
+      - MIRAI_LEVELS_MIB=256
+    # tensor-split пропорционально VRAM (16 ГБ : 12 ГБ). Прокидывается в llama-server.
+    command: ["--tensor-split", "16,12"]
     restart: unless-stopped
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['1']
+              count: all          # было device_ids: ['0'] — теперь видны обе карты
               capabilities: [gpu]
     depends_on:
       download-weights:
@@ -48,7 +64,7 @@ services:
       - "80:4096"
     volumes:
       - ./opencode.json:/root/.config/opencode/opencode.json:ro
-      - opencode_workspace:/root/workspace 
+      - opencode_workspace:/root/workspace
       - ./AGENTS.md:/root/workspace/AGENTS.md:ro
     restart: unless-stopped
     depends_on:
@@ -72,6 +88,7 @@ services:
       - PERMISSIONS=1
     volumes:
       - opencode_workspace:/share:z # Подключаем тот же том, что и у приложения
+      - ./AGENTS.md:/share/AGENTS.md:ro
     ports:
       - "139:139"
       - "445:445"
@@ -81,6 +98,5 @@ services:
         condition: service_healthy
 
 volumes:
-  opencode_workspace:       
+  opencode_workspace:
     name: opencode-workspace
-        

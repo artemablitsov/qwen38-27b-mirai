@@ -7,10 +7,10 @@
       "name": "localhost",
       "options": {
         "baseURL": "http://llm-server:8080/v1",
-        "headerTimeout": 3600000, 
-	"timeout": 10800000, 
-      	"chunkTimeout": 3600000, 
-      	"setCacheKey": true
+        "headerTimeout": 3600000,
+        "timeout": 10800000,
+        "chunkTimeout": 3600000,
+        "setCacheKey": true
       },
       "models": {
         "Qwen3.8-27b": {
@@ -33,7 +33,7 @@
             "top_p": 0.95,
             "top_k": 20,
             "min_p": 0.05,
-            "reasoning_effort": "low"
+            "reasoning_effort": "medium"
           }
         }
       }

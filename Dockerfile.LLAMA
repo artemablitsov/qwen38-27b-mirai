@@ -19,7 +19,7 @@ ARG APP_VERSION
 
 RUN apt-get update && \
     apt-get install -y git
-RUN git clone --recurse-submodules https://github.com/professorpalmer/mirai-s-ada 
+RUN git clone --recurse-submodules https://github.com/professorpalmer/mirai-s-ada
 RUN mv /mirai-s-ada/engine /llama.cpp
 
 WORKDIR /app/tools/ui
@@ -35,8 +35,10 @@ RUN LLAMA_BUILD_NUMBER="${APP_VERSION}" npm run build
 FROM ${BASE_CUDA_DEV_CONTAINER} AS build
 
 ARG GCC_VERSION
-# CUDA architecture to build for (defaults to all supported archs)
-ARG CUDA_DOCKER_ARCH=default
+# CUDA architecture to build for.
+# A2000 (Ampere GA106) = sm_86, A2000 Ada (AD107) = sm_89.
+# Собираем ровно под обе карты — быстрее сборка и оптимальный код вместо "all archs".
+ARG CUDA_DOCKER_ARCH="86;89"
 
 RUN apt-get update && \
     apt-get install -y gcc-${GCC_VERSION} g++-${GCC_VERSION} build-essential cmake python3 python3-pip git libssl-dev libgomp1 curl
@@ -49,7 +51,7 @@ COPY --from=web /llama.cpp .
 
 COPY --from=web /app/tools/ui/dist tools/ui/dist
 
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined -Wno-deprecated-gpu-targets . && \
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="${CUDA_DOCKER_ARCH}" -DLLAMA_CURL=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined -Wno-deprecated-gpu-targets . && \
     cmake --build build --config Release -j$(nproc)
 
 RUN mkdir -p /app/lib && \
@@ -140,8 +142,16 @@ ENV MIRAI_SERVER=/app/llama-server
 ENV MIRAI_CVEC=/models/Qwen3.8-27B-S-mirai-refusal-direction.gguf
 ENV MIRAI_MODEL=/models/Qwen3.8-27B-S-mirai.gguf
 ENV MIRAI_MMPROJ=/models/mmproj-Qwen3.8-27B-base-f16.gguf
-ENV MIRAI_EFFORT=low
-ENV MIRAI_EFFORT_ALLOWED=low
+# Дефолт эффорта поднят до medium под сложный кодинг (можно переопределить в compose).
+ENV MIRAI_EFFORT=medium
+ENV MIRAI_EFFORT_ALLOWED=low,medium
+ENV MIRAI_TIER=1
+# Стартовое значение KV-ячеек в VRAM под две карты (28 ГБ). Финально подбирается по nvidia-smi.
+ENV MIRAI_KV_VRAM_CELLS=100000
+# Потоки CPU по умолчанию (i7-14700: P-ядра + часть E-ядер), не весь nproc.
+ENV MIRAI_THREADS=12
+# RAM-кэш FFN-планов крупнее — у хоста 128 ГБ.
+ENV MIRAI_LEVELS_MIB=256
 
 EXPOSE 8080
 
